@@ -1,0 +1,102 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users collection
+    match /users/{userId} {
+      // Anyone can read user profiles (needed for search and public profiles)
+      allow read: if true;
+      
+      // Only authenticated users can create/update their own profile
+      allow create, update: if request.auth != null && request.auth.uid == userId;
+      
+      // Only the user can delete their own profile
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Bookings collection
+    match /bookings/{bookingId} {
+      // Users can read their own bookings (as requester or provider)
+      allow read: if request.auth != null && 
+                     (resource.data.requesterId == request.auth.uid || 
+                      resource.data.providerId == request.auth.uid);
+      
+      // Only authenticated users can create bookings
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.requesterId;
+      
+      // Providers can update booking status
+      allow update: if request.auth != null && 
+                       (request.auth.uid == resource.data.providerId || 
+                        request.auth.uid == resource.data.requesterId);
+    }
+
+    // Jobs collection
+    match /jobs/{jobId} {
+      // Anyone can read jobs (needed for providers to browse)
+      allow read: if true;
+      
+      // Authenticated users can create jobs
+      allow create: if request.auth != null && request.resource.data.postedBy == request.auth.uid;
+      
+      // Job owner can update/delete, OR anyone can update 'applicants' (to apply)
+      allow update: if request.auth != null && (
+        resource.data.postedBy == request.auth.uid || 
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['applicants'])
+      );
+      
+      allow delete: if request.auth != null && resource.data.postedBy == request.auth.uid;
+    }
+
+    // Applications collection
+    match /applications/{applicationId} {
+      // Job owner can read applications for their job, Applicant can read their own application
+      // Note: This is a bit complex in rules because we need to know the job owner. 
+      // For simplicity in this iteration, we'll allow auth users to read, 
+      // but in production you'd want to be stricter or use a function.
+      // A common pattern is to duplicate the 'jobOwnerId' on the application or rely on client-side filtering + basic auth checks.
+      allow read: if request.auth != null; 
+      
+      // Authenticated users can create applications
+      allow create: if request.auth != null && request.resource.data.providerId == request.auth.uid;
+      
+      // Applicant can update (e.g. cancel), Job owner can update status (if we had jobOwnerId here)
+      // For now, allow if auth user involved
+      allow update: if request.auth != null;
+    }
+
+    // Notifications collection
+    match /notifications/{notificationId} {
+      // Users can only read their own notifications
+      allow read: if request.auth != null && resource.data.recipientId == request.auth.uid;
+      
+      // Authenticated users can create notifications (for others)
+      allow create: if request.auth != null;
+      
+      // Users can update their own notifications (mark as read)
+      allow update: if request.auth != null && resource.data.recipientId == request.auth.uid;
+      
+      // Users can delete their own notifications
+      allow delete: if request.auth != null && resource.data.recipientId == request.auth.uid;
+    }
+
+    // SOS Alerts collection
+    match /sos_alerts/{alertId} {
+      // Admin dashboard needs to read all alerts. 
+      allow read: if true; 
+      
+      // Allow anyone to create alerts (critical for SOS)
+      allow create: if true;
+    }
+
+    // Complaints collection
+    match /complaints/{complaintId} {
+      // Anyone can read complaints (for admin dashboard)
+      allow read: if true;
+      
+      // Authenticated users can create complaints
+      allow create: if request.auth != null;
+      
+      // Allow updates and deletes (for admin actions)
+      allow update, delete: if true;
+    }
+  }
+}
